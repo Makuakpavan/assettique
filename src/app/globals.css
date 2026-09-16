@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --gold-400: #d4a832;
+    --gold-500: #b8922a;
+    --gold-600: #9a7a22;
+    --charcoal-950: #0a0a0a;
+    --charcoal-900: #111111;
+    --charcoal-800: #141414;
+    --charcoal-700: #1f1f1f;
+    --charcoal-600: #2a2a2a;
+    --charcoal-500: #3d3d3d;
+    --charcoal-400: #888888;
+    --charcoal-300: #b0b0b0;
+    --ivory: #f5f0e8;
+  }
+
+  * {
+    @apply border-charcoal-700/50;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-luxury-black text-luxury-ivory antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  ::selection {
+    background: rgba(184, 146, 42, 0.3);
+    color: #f5f0e8;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3d3d3d;
+  }
+}
+
+@layer components {
+  .luxury-card {
+    @apply bg-luxury-card border border-luxury-border rounded-xl overflow-hidden;
+    @apply transition-all duration-300;
+  }
+
+  .luxury-card:hover {
+    @apply border-gold-500/30 shadow-lg shadow-gold-500/5;
+  }
+
+  .gold-gradient-text {
+    @apply bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent;
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      #1a1a1a 25%,
+      #2a2a2a 50%,
+      #1a1a1a 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-gold-500 to-gold-600 text-luxury-black;
+    @apply px-6 py-3 rounded-lg font-medium;
+    @apply transition-all duration-300 hover:shadow-lg hover:shadow-gold-500/20;
+    @apply active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply bg-luxury-card border border-luxury-border text-luxury-ivory;
+    @apply px-6 py-3 rounded-lg font-medium;
+    @apply transition-all duration-300 hover:border-gold-500/50 hover:bg-luxury-dark;
+    @apply active:scale-[0.98];
+  }
+
+  .section-padding {
+    @apply px-4 sm:px-6 lg:px-8 xl:px-16 2xl:px-24;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer utilities {
+  .text-shadow-gold {
+    text-shadow: 0 0 40px rgba(184, 146, 42, 0.3);
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 0.6s ease-out forwards;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.6s ease-out forwards;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

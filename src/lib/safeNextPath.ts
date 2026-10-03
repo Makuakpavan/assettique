@@ -5,18 +5,19 @@
  * would leave this site.
  */
 export function safeNextPath(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/')) return '/';
+  const defaultPath = '/dashboard';
+  if (!next || !next.startsWith('/')) return defaultPath;
 
   const base = 'http://assettique.invalid';
   let url: URL;
   try {
     url = new URL(next, base);
   } catch {
-    return '/';
+    return defaultPath;
   }
-  if (url.origin !== base) return '/';
+  if (url.origin !== base) return defaultPath;
   // "/..//evil.com" normalises to the path "//evil.com", which a browser treats as another site
-  if (url.pathname.startsWith('//')) return '/';
+  if (url.pathname.startsWith('//')) return defaultPath;
 
   return url.pathname + url.search + url.hash;
 }

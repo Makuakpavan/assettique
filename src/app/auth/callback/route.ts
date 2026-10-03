@@ -12,7 +12,7 @@ import { safeNextPath } from '@/lib/safeNextPath';
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
-  const next = safeNextPath(searchParams.get('next'));
+  const next = safeNextPath(searchParams.get('next')) || '/dashboard';
   const code = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
   const type = searchParams.get('type') as EmailOtpType | null;

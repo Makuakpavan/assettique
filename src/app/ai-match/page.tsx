@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Sparkles, Send, User, Bot, ArrowRight, CheckCircle2, MapPin } from 'lucide-react';
 import { PageLayout } from '@/components/layout/PageLayout';
+import { useUser } from '@/hooks/useUser';
 import { formatPrice } from '@/lib/utils';
 
 interface ChatMessage {
@@ -45,6 +46,7 @@ export default function AIMatchPage() {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const { user, loading: userLoading } = useUser();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +54,18 @@ export default function AIMatchPage() {
   }, [messages]);
 
   const handleSend = async () => {
+    if (userLoading) return;
+
+    if (!user) {
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: 'Please sign in or create an account to use AI Asset Match.',
+        signInLink: true,
+      }]);
+      return;
+    }
+
     if (!input.trim() || isTyping) return;
 
     const userMsg: ChatMessage = { id: Date.now().toString(), type: 'user', content: input };
@@ -60,14 +74,20 @@ export default function AIMatchPage() {
     setIsTyping(true);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           sessionId: sessionId,
           query: userMsg.content,
         }),
       });
+
+      window.clearTimeout(timeoutId);
 
       if (response.status === 401) {
         setMessages(prev => [...prev, {
@@ -113,12 +133,15 @@ export default function AIMatchPage() {
       setMessages(prev => [...prev, aiMsg]);
     } catch (error) {
       console.error('Error:', error);
+      const rawMessage = error instanceof Error ? error.message : 'Failed to get response';
+      const payloadMessage = rawMessage === 'Failed to get response' || rawMessage === 'The operation was aborted.'
+        ? 'The AI request timed out or failed. Please try again in a moment.'
+        : rawMessage;
+
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: error instanceof Error && error.message !== 'Failed to get response'
-          ? error.message
-          : 'Sorry, I encountered an error. Please try again.',
+        content: payloadMessage,
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
@@ -140,6 +163,18 @@ export default function AIMatchPage() {
             </div>
           </div>
         </div>
+
+        {!userLoading && !user && (
+          <div className="section-padding border-b border-luxury-border/50 bg-luxury-card/50">
+            <div className="mx-auto max-w-2xl rounded-2xl border border-gold-500/20 bg-gold-500/5 px-4 py-3 text-sm text-luxury-ivory flex items-center justify-between gap-3">
+              <span>Sign in to continue your chat.</span>
+              <Link href="/login?next=/ai-match" className="inline-flex items-center gap-2 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1.5 text-gold-300 hover:bg-gold-500/20 transition-colors">
+                Sign up
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        )}
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto section-padding py-6 space-y-6">
           {messages.map((msg) => (
@@ -224,8 +259,23 @@ export default function AIMatchPage() {
             <p className="text-xs text-luxury-muted mb-3">Try asking:</p>
             <div className="flex flex-wrap gap-2">
               {suggestionPrompts.map((prompt) => (
-                <button key={prompt} onClick={() => { setInput(prompt); }}
-                  className="px-4 py-2 rounded-xl bg-luxury-card border border-luxury-border text-xs text-luxury-muted hover:text-luxury-ivory hover:border-gold-500/30 transition-colors text-left">
+                <button
+                  key={prompt}
+                  onClick={() => {
+                    if (!user) {
+                      setMessages(prev => [...prev, {
+                        id: (Date.now() + 1).toString(),
+                        type: 'ai',
+                        content: 'Please sign in or create an account to use AI Asset Match.',
+                        signInLink: true,
+                      }]);
+                      return;
+                    }
+                    setInput(prompt);
+                  }}
+                  disabled={userLoading || !user}
+                  className="px-4 py-2 rounded-xl bg-luxury-card border border-luxury-border text-xs text-luxury-muted hover:text-luxury-ivory hover:border-gold-500/30 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   {prompt}
                 </button>
               ))}
@@ -235,11 +285,22 @@ export default function AIMatchPage() {
 
         <div className="section-padding py-4 border-t border-luxury-border/50">
           <div className="relative max-w-3xl mx-auto">
-            <input type="text" maxLength={1000} value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Describe what you're looking for..."
-              className="w-full bg-luxury-card border border-luxury-border rounded-2xl pl-5 pr-14 py-4 text-luxury-ivory placeholder:text-luxury-muted/60 focus:outline-none focus:border-gold-500/50 transition-colors" />
-            <button onClick={handleSend} disabled={!input.trim() || isTyping}
+            <input
+              type="text"
+              maxLength={1000}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && user && !userLoading) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              disabled={userLoading || !user}
+              placeholder={user ? 'Describe what you\'re looking for...' : 'Sign in to start chatting'}
+              className="w-full bg-luxury-card border border-luxury-border rounded-2xl pl-5 pr-14 py-4 text-luxury-ivory placeholder:text-luxury-muted/60 focus:outline-none focus:border-gold-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <button onClick={handleSend} disabled={userLoading || !user || !input.trim() || isTyping}
               className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-gold-500 text-luxury-black rounded-xl hover:bg-gold-400 transition-colors disabled:opacity-50">
               <Send className="w-4 h-4" />
             </button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
@@ -12,9 +12,12 @@ import { PropertyCard } from '@/components/listings/PropertyCard';
 import { vehicles } from '@/data/vehicles';
 import { properties } from '@/data/properties';
 import { useFavorites } from '@/hooks/useFavorites';
+import { toVehicle, toProperty, type ApiListing } from '@/lib/listingAdapters';
 
 export default function Home() {
   const [showIntro, setShowIntro] = useState(false);
+  const [liveVehicles, setLiveVehicles] = useState<any[]>([]);
+  const [liveProperties, setLiveProperties] = useState<any[]>([]);
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
   useEffect(() => {
@@ -24,6 +27,30 @@ export default function Home() {
         setShowIntro(true);
       }
     }
+
+    let active = true;
+
+    Promise.all([
+      fetch('/api/listings?type=vehicle&limit=4'),
+      fetch('/api/listings?type=property&limit=4'),
+    ])
+      .then(async ([vehicleResponse, propertyResponse]) => {
+        if (!active) return;
+        const vehicleData = vehicleResponse.ok ? await vehicleResponse.json() : { listings: [] };
+        const propertyData = propertyResponse.ok ? await propertyResponse.json() : { listings: [] };
+        setLiveVehicles((vehicleData.listings ?? []).map((listing: ApiListing) => toVehicle(listing)));
+        setLiveProperties((propertyData.listings ?? []).map((listing: ApiListing) => toProperty(listing)));
+      })
+      .catch(() => {
+        if (active) {
+          setLiveVehicles([]);
+          setLiveProperties([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleIntroComplete = () => {
@@ -33,8 +60,23 @@ export default function Home() {
     setShowIntro(false);
   };
 
-  const featuredVehicles = vehicles.filter(v => v.featured).slice(0, 4);
-  const featuredProperties = properties.filter(p => p.featured).slice(0, 4);
+  const featuredVehicles = useMemo(() => {
+    const merged = [...liveVehicles, ...vehicles.filter(v => v.featured)];
+    const map = new Map<string, (typeof vehicles)[number]>();
+    for (const vehicle of merged) {
+      map.set(vehicle.id, vehicle as (typeof vehicles)[number]);
+    }
+    return Array.from(map.values()).slice(0, 4);
+  }, [liveVehicles]);
+
+  const featuredProperties = useMemo(() => {
+    const merged = [...liveProperties, ...properties.filter(p => p.featured)];
+    const map = new Map<string, (typeof properties)[number]>();
+    for (const property of merged) {
+      map.set(property.id, property as (typeof properties)[number]);
+    }
+    return Array.from(map.values()).slice(0, 4);
+  }, [liveProperties]);
 
   return (
     <>

@@ -4,9 +4,15 @@ import type { Prisma } from '@prisma/client';
 import { nairaToKobo, serializeListing } from '@/lib/money';
 import { getCurrentSellerId } from '@/lib/currentSeller';
 
-const STATUSES = ['draft', 'published', 'sold'] as const;
+const STATUSES = ['DRAFT', 'PUBLISHED', 'SOLD'] as const;
 
 const jsonError = (error: string, status: number) => NextResponse.json({ error }, { status });
+
+function normalizeStatus(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return STATUSES.includes(normalized as (typeof STATUSES)[number]) ? normalized : null;
+}
 
 /** Signed in + owns the listing, or an error response to return as-is. */
 async function authorizeOwner(id: string) {
@@ -51,8 +57,7 @@ export async function GET(
       );
     }
 
-    if (listing.status !== 'published') {
-      // Drafts and sold listings are only visible to their owner
+    if (listing.status !== 'PUBLISHED') {
       const sellerId = await getCurrentSellerId();
       if (sellerId !== listing.sellerId) {
         return jsonError('Listing not found', 404);
@@ -84,7 +89,6 @@ export async function PATCH(
     if (auth.error) return auth.error;
 
     const body = await request.json();
-    // Only these fields can be edited. Anything else (sellerId, views, favorites…) is ignored.
     const data: Prisma.ListingUpdateInput = {};
 
     for (const key of ['title', 'location'] as const) {
@@ -100,7 +104,6 @@ export async function PATCH(
       }
     }
 
-    // Client sends naira; DB stores kobo
     if (body.price !== undefined) {
       const priceKobo = nairaToKobo(body.price);
       if (priceKobo === null) return jsonError('Price must be a positive amount in naira', 400);
@@ -124,10 +127,11 @@ export async function PATCH(
     }
 
     if (body.status !== undefined) {
-      if (!STATUSES.includes(body.status)) return jsonError('status must be draft, published or sold', 400);
-      data.status = body.status;
-      data.published = body.status === 'published';
-      if (body.status === 'published' && !auth.listing.publishedAt) data.publishedAt = new Date();
+      const status = normalizeStatus(body.status);
+      if (!status) return jsonError('status must be DRAFT, PUBLISHED or SOLD', 400);
+      data.status = status;
+      data.published = status === 'PUBLISHED';
+      data.publishedAt = status === 'PUBLISHED' ? (auth.listing.publishedAt ?? new Date()) : null;
     }
 
     const listing = await prisma.listing.update({

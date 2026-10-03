@@ -7,19 +7,24 @@ import { formatNumber, formatPrice } from '@/lib/utils';
 import { getCurrentUser } from '@/lib/auth';
 import { deriveCriteria, rankListings, type MatchCriteria } from '@/lib/assetMatching';
 
-// Model settings. Change the model in .env (OPENAI_MODEL) when OpenAI retires one.
-// gpt-4 shuts down on Oct 23, 2026; gpt-5.6-sol is OpenAI's listed replacement.
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-sol';
+// Model settings. Use a stable chat model that is available to the current key.
+// A real key can still fail if the default falls back to an unsupported model.
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 // Short matching replies don't need deep reasoning. Set OPENAI_REASONING_EFFORT="" for
 // models that don't support reasoning_effort.
 const REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT ?? 'low';
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? 20000);
 const MAX_QUERY_LENGTH = 1000;
 const HISTORY_LIMIT = 12; // earlier messages sent back to the AI so it remembers the chat
 
 // Created on first request, so `next build` works even where the key isn't set
 let openai: OpenAI | null = null;
 function getOpenAI() {
-  return (openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
+  return (openai ??= new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: OPENAI_TIMEOUT_MS,
+    maxRetries: 0,
+  }));
 }
 
 export async function POST(request: NextRequest) {
@@ -83,27 +88,84 @@ export async function POST(request: NextRequest) {
     const candidates = await findCandidates(criteria);
     const { context, cards } = rankListings(candidates, criteria);
 
-    const completion = await getOpenAI().chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: 'system', content: buildSystemPrompt(context, criteria) },
-        ...history.map((m) => ({
-          role: m.type === 'user' ? ('user' as const) : ('assistant' as const),
-          content: m.content,
-        })),
-        { role: 'user', content: query },
-      ],
-      // Newer models reject max_tokens/temperature; reasoning tokens also count toward this cap
-      max_completion_tokens: 1500,
-      ...(REASONING_EFFORT
-        ? // The API also accepts "none"/"xhigh"; this SDK version's type only lists these three
-          { reasoning_effort: REASONING_EFFORT as 'low' | 'medium' | 'high' }
-        : {}),
-    });
+    let aiResponse = '';
+    let fallbackUsed = false;
 
-    const aiResponse =
-      completion.choices[0]?.message?.content?.trim() ||
-      "Sorry, I couldn't put an answer together just now. Could you rephrase what you're looking for?";
+    try {
+      const completion = await getOpenAI().chat.completions.create({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: buildSystemPrompt(context, criteria) },
+          ...history.map((m) => ({
+            role: m.type === 'user' ? ('user' as const) : ('assistant' as const),
+            content: m.content,
+          })),
+          { role: 'user', content: query },
+        ],
+        // Newer models reject max_tokens/temperature; reasoning tokens also count toward this cap
+        max_completion_tokens: 1500,
+        ...(REASONING_EFFORT
+          ? // The API also accepts "none"/"xhigh"; this SDK version's type only lists these three
+            { reasoning_effort: REASONING_EFFORT as 'low' | 'medium' | 'high' }
+          : {}),
+      });
+
+      aiResponse =
+        completion.choices[0]?.message?.content?.trim() ||
+        "Sorry, I couldn't put an answer together just now. Could you rephrase what you're looking for?";
+    } catch (error) {
+      if (error instanceof OpenAI.APIError) {
+        console.error('[api/chat] OpenAI upstream error', {
+          status: error.status,
+          code: error.code,
+          message: error.message,
+          model: OPENAI_MODEL,
+        });
+
+        if (error.status === 401 || error.code === 'invalid_api_key' || error.code === 'authentication_error') {
+          return NextResponse.json(
+            { error: 'AI API key is invalid or unauthorized. Check OPENAI_API_KEY.' },
+            { status: 401 }
+          );
+        }
+
+        if (error.status === 429 || error.code === 'rate_limit_exceeded' || error.code === 'insufficient_quota') {
+          return NextResponse.json(
+            { error: 'AI Match is rate limited or out of credits. Please try again later.' },
+            { status: 429 }
+          );
+        }
+
+        if (error.status === 404 || /model/i.test(error.message)) {
+          return NextResponse.json(
+            { error: 'The configured OpenAI model is unavailable or invalid.' },
+            { status: 400 }
+          );
+        }
+
+        if (error.status === 408 || /timeout|timed out|network/i.test(error.message)) {
+          return NextResponse.json(
+            { error: 'The AI request timed out. Please try again in a moment.' },
+            { status: 504 }
+          );
+        }
+
+        fallbackUsed = true;
+        aiResponse = 'I could not reach the AI model right now, so I am showing the closest matches from the listings available in the catalog.';
+      } else {
+        const reason = error instanceof Error ? error.message : 'Unknown upstream error';
+        console.error('[api/chat] OpenAI request failed', {
+          status: 502,
+          code: 'chat_upstream_failed',
+          message: reason,
+          model: OPENAI_MODEL,
+        });
+        fallbackUsed = true;
+        aiResponse = 'I could not reach the AI model right now, so I am showing the closest matches from the listings available in the catalog.';
+      }
+    }
+
+    const recommendations = cards.map(serializeListing);
 
     // Save messages to database
     await prisma.chatMessage.create({
@@ -122,6 +184,7 @@ export async function POST(request: NextRequest) {
         metadata: JSON.stringify({
           matchedListingIds: context.map((l) => l.id),
           recommendedListingIds: cards.map((l) => l.id),
+          fallbackUsed,
         }),
       },
     });
@@ -129,21 +192,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       sessionId: session.id,
       response: aiResponse,
-      recommendations: cards.map(serializeListing),
+      recommendations,
       messageId: savedMessage.id,
+      fallbackUsed,
     });
   } catch (error) {
     if (error instanceof OpenAI.APIError) {
-      // e.g. bad key, no credit, retired model, rate limit — details stay in the server log
-      console.error(`OpenAI error ${error.status} (${OPENAI_MODEL}):`, error.message);
+      console.error('[api/chat] OpenAI upstream error', {
+        status: error.status,
+        code: error.code,
+        message: error.message,
+        model: OPENAI_MODEL,
+      });
       return NextResponse.json(
         { error: 'AI Match is temporarily unavailable. Please try again shortly.' },
         { status: 502 }
       );
     }
-    console.error('Error in chat:', error);
+
+    const reason = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[api/chat] Route error before OpenAI call:', {
+      status: 500,
+      code: 'chat_route_error',
+      message: reason,
+    });
     return NextResponse.json(
-      { error: 'Failed to process chat' },
+      { error: 'AI Match failed before contacting OpenAI. Please try again later.' },
       { status: 500 }
     );
   }
@@ -151,7 +225,7 @@ export async function POST(request: NextRequest) {
 
 /** Published listings that fit the type / location / budget (ranking happens afterwards). */
 async function findCandidates(criteria: MatchCriteria) {
-  const where: Prisma.ListingWhereInput = { status: 'published' };
+  const where: Prisma.ListingWhereInput = { status: 'PUBLISHED' };
   if (criteria.type) where.type = criteria.type;
   if (criteria.location) where.location = { contains: criteria.location, mode: 'insensitive' };
   const maxPriceKobo = criteria.budgetNaira ? nairaToKobo(criteria.budgetNaira) : null;

@@ -4,10 +4,18 @@ import { prisma } from '@/lib/prisma';
 import { nairaToKobo, serializeListing } from '@/lib/money';
 import { getCurrentSellerId } from '@/lib/currentSeller';
 
+const LISTING_STATUSES = ['DRAFT', 'PUBLISHED', 'SOLD'] as const;
+
 // Parses a query number, falling back to `fallback` and clamping to [min, max]
 function clampInt(value: string | null, fallback: number, min: number, max: number) {
   const n = Number.parseInt(value ?? '', 10);
   return Number.isNaN(n) ? fallback : Math.min(max, Math.max(min, n));
+}
+
+function normalizeStatus(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return LISTING_STATUSES.includes(normalized as (typeof LISTING_STATUSES)[number]) ? normalized : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -18,9 +26,7 @@ export async function GET(request: NextRequest) {
     const limit = clampInt(searchParams.get('limit'), 20, 1, 50);
     const skip = clampInt(searchParams.get('skip'), 0, 0, 10_000);
 
-    // Public: published listings only.
-    // ?mine=1: the signed-in seller's own listings in any status (for the seller dashboard).
-    let where: Prisma.ListingWhereInput = { status: 'published' };
+    let where: Prisma.ListingWhereInput = { status: 'PUBLISHED' };
     if (mine) {
       const sellerId = await getCurrentSellerId();
       if (!sellerId) {
@@ -75,18 +81,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Seller comes from the verified session, never from the request body
     const sellerId = await getCurrentSellerId();
     if (!sellerId) {
       return NextResponse.json({ error: 'Please sign in to create a listing' }, { status: 401 });
     }
 
     const body = await request.json();
-    
+
     const {
       title,
       description,
-      type, // 'vehicle' | 'property'
+      type,
       price,
       location,
       category,
@@ -96,7 +101,6 @@ export async function POST(request: NextRequest) {
       publish = false,
     } = body;
 
-    // Validation
     if (!title || !type || !price || !location) {
       return NextResponse.json(
         { error: 'Missing required fields' },
@@ -111,7 +115,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Client sends naira; DB stores kobo
     const priceKobo = nairaToKobo(price);
     if (priceKobo === null) {
       return NextResponse.json(
@@ -120,6 +123,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const requestedStatus = normalizeStatus(body.status);
+    const status = requestedStatus ?? (publish ? 'PUBLISHED' : 'DRAFT');
     const now = new Date();
 
     const listing = await prisma.listing.create({
@@ -135,9 +140,9 @@ export async function POST(request: NextRequest) {
         images: Array.isArray(images) ? images.filter((u: unknown) => typeof u === 'string') : [],
         documents: Array.isArray(documents) ? documents.filter((u: unknown) => typeof u === 'string') : [],
         sellerId,
-        status: publish ? 'published' : 'draft',
-        published: Boolean(publish),
-        publishedAt: publish ? now : null,
+        status,
+        published: status === 'PUBLISHED',
+        publishedAt: status === 'PUBLISHED' ? now : null,
       },
     });
 

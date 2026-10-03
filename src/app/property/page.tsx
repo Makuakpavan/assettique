@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, SlidersHorizontal, Grid3X3, List, MapPin } from 'lucide-react';
 import { PageLayout } from '@/components/layout/PageLayout';
 import { PropertyCard } from '@/components/listings/PropertyCard';
 import { properties, propertyCategories } from '@/data/properties';
 import { useFavorites } from '@/hooks/useFavorites';
+import { toProperty, type ApiListing } from '@/lib/listingAdapters';
 
 export default function PropertyPage() {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -14,10 +15,40 @@ export default function PropertyPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 3000000000]);
+  const [liveProperties, setLiveProperties] = useState<any[]>([]);
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
+  useEffect(() => {
+    let active = true;
+
+    fetch('/api/listings?type=property&limit=20')
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        const apiListings: ApiListing[] = Array.isArray(data.listings) ? data.listings : [];
+        if (!active) return;
+        setLiveProperties(apiListings.map((listing) => toProperty(listing)));
+      })
+      .catch(() => {
+        if (active) setLiveProperties([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const allProperties = useMemo(() => {
+    const merged = [...liveProperties, ...properties];
+    const map = new Map<string, (typeof properties)[number]>();
+    for (const property of merged) {
+      map.set(property.id, property as (typeof properties)[number]);
+    }
+    return Array.from(map.values());
+  }, [liveProperties]);
+
   const filteredProperties = useMemo(() => {
-    return properties.filter(p => {
+    return allProperties.filter(p => {
       const matchesCategory = activeCategory === 'All' || p.category === activeCategory;
       const matchesSearch = !searchQuery || 
         p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -26,7 +57,7 @@ export default function PropertyPage() {
       const matchesPrice = p.price >= priceRange[0] && p.price <= priceRange[1];
       return matchesCategory && matchesSearch && matchesPrice;
     });
-  }, [activeCategory, searchQuery, priceRange]);
+  }, [activeCategory, searchQuery, priceRange, allProperties]);
 
   return (
     <PageLayout>

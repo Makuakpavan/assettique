@@ -98,7 +98,7 @@ export function Navbar() {
                 </Link>
               ))}
               <Link
-                href="/seller"
+                href={user ? '/dashboard' : '/signup?next=/dashboard'}
                 className="hidden md:flex items-center gap-2 px-4 py-2 bg-gold-500 text-luxury-black rounded-lg text-sm font-medium hover:bg-gold-400 transition-colors"
               >
                 SELL AN ASSET
@@ -199,7 +199,7 @@ export function Navbar() {
                   </Link>
                 )}
                 <Link
-                  href="/seller"
+                  href={user ? '/dashboard' : '/signup?next=/dashboard'}
                   onClick={() => setIsOpen(false)}
                   className="block w-full text-center py-4 bg-gold-500 text-luxury-black rounded-xl font-medium"
                 >

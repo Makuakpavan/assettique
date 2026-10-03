@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { vehicles } from '@/data/vehicles';
 import { formatPrice } from '@/lib/utils';
 import { useApiListing } from '@/hooks/useApiListing';
+import { useFavorites } from '@/hooks/useFavorites';
 import { toVehicle } from '@/lib/listingAdapters';
 import Loading from '@/app/loading';
 
@@ -27,7 +28,8 @@ export default function VehicleDetailPage() {
   const [offerAmount, setOfferAmount] = useState('');
   const [offerMessage, setOfferMessage] = useState('');
   const [offerSubmitted, setOfferSubmitted] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const saved = isFavorite(id);
 
   // Sample listing, or one loaded from the database
   const vehicle = sampleVehicle ?? (listing ? toVehicle(listing) : null);
@@ -154,8 +156,8 @@ export default function VehicleDetailPage() {
               <button className="btn-secondary flex items-center gap-2">
                 <Eye className="w-4 h-4" /> BOOK VIEWING
               </button>
-              <button 
-                onClick={() => setSaved(!saved)}
+              <button
+                onClick={() => void toggleFavorite(id)}
                 className={`btn-secondary flex items-center gap-2 ${saved ? 'text-gold-400 border-gold-500/50' : ''}`}
               >
                 <Heart className={`w-4 h-4 ${saved ? 'fill-current' : ''}`} /> {saved ? 'SAVED' : 'SAVE'}

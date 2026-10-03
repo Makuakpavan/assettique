@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, SlidersHorizontal, Grid3X3, List, X } from 'lucide-react';
 import { PageLayout } from '@/components/layout/PageLayout';
 import { VehicleCard } from '@/components/listings/VehicleCard';
 import { vehicles, vehicleCategories } from '@/data/vehicles';
 import { useFavorites } from '@/hooks/useFavorites';
+import { toVehicle, type ApiListing } from '@/lib/listingAdapters';
 
 export default function AutomotivePage() {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -14,10 +15,40 @@ export default function AutomotivePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 500000000]);
+  const [liveVehicles, setLiveVehicles] = useState<any[]>([]);
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
+  useEffect(() => {
+    let active = true;
+
+    fetch('/api/listings?type=vehicle&limit=20')
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        const apiListings: ApiListing[] = Array.isArray(data.listings) ? data.listings : [];
+        if (!active) return;
+        setLiveVehicles(apiListings.map((listing) => toVehicle(listing)));
+      })
+      .catch(() => {
+        if (active) setLiveVehicles([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const allVehicles = useMemo(() => {
+    const merged = [...liveVehicles, ...vehicles];
+    const map = new Map<string, (typeof vehicles)[number]>();
+    for (const vehicle of merged) {
+      map.set(vehicle.id, vehicle as (typeof vehicles)[number]);
+    }
+    return Array.from(map.values());
+  }, [liveVehicles]);
+
   const filteredVehicles = useMemo(() => {
-    return vehicles.filter(v => {
+    return allVehicles.filter(v => {
       const matchesCategory = activeCategory === 'All' || v.category === activeCategory;
       const matchesSearch = !searchQuery || 
         v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -26,7 +57,7 @@ export default function AutomotivePage() {
       const matchesPrice = v.price >= priceRange[0] && v.price <= priceRange[1];
       return matchesCategory && matchesSearch && matchesPrice;
     });
-  }, [activeCategory, searchQuery, priceRange]);
+  }, [activeCategory, searchQuery, priceRange, allVehicles]);
 
   return (
     <PageLayout>

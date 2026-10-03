@@ -50,7 +50,7 @@ function goTo(path: string) {
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const next = safeNextPath(searchParams.get('next'));
+  const next = safeNextPath(searchParams.get('next')) || '/dashboard';
   const linkError = searchParams.get('error') === 'link';
 
   const [mode, setMode] = useState<Mode>('signin');

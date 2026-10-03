@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { properties } from '@/data/properties';
 import { formatPrice } from '@/lib/utils';
 import { useApiListing } from '@/hooks/useApiListing';
+import { useFavorites } from '@/hooks/useFavorites';
 import { toProperty } from '@/lib/listingAdapters';
 import Loading from '@/app/loading';
 
@@ -30,7 +31,8 @@ export default function PropertyDetailPage() {
   const [inspectionDate, setInspectionDate] = useState('');
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [inspectionSubmitted, setInspectionSubmitted] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const saved = isFavorite(id);
 
   // Sample listing, or one loaded from the database
   const property = sampleProperty ?? (listing ? toProperty(listing) : null);
@@ -160,8 +162,8 @@ export default function PropertyDetailPage() {
               <button onClick={() => setShowInspectionModal(true)} className="btn-secondary flex items-center gap-2">
                 <Eye className="w-4 h-4" /> REQUEST INSPECTION
               </button>
-              <button 
-                onClick={() => setSaved(!saved)}
+              <button
+                onClick={() => void toggleFavorite(id)}
                 className={`btn-secondary flex items-center gap-2 ${saved ? 'text-gold-400 border-gold-500/50' : ''}`}
               >
                 <Heart className={`w-4 h-4 ${saved ? 'fill-current' : ''}`} /> {saved ? 'SAVED' : 'SAVE'}

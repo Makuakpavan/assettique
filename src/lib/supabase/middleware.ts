@@ -4,7 +4,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, isSupabaseConfigured } from './
 import { safeNextPath } from '@/lib/safeNextPath';
 
 // Pages that need a signed-in user (API routes check auth themselves and return 401).
-const PROTECTED_PREFIXES = ['/seller', '/dashboard', '/transaction', '/account'];
+const PROTECTED_PREFIXES = ['/sell', '/seller', '/dashboard', '/transaction', '/account'];
 
 const isProtected = (path: string) =>
   PROTECTED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
@@ -42,13 +42,20 @@ export async function updateSession(request: NextRequest) {
   const user = data?.claims ?? null;
 
   if (!user && isProtected(path)) {
+    if (path === '/sell') {
+      const url = request.nextUrl.clone();
+      url.pathname = '/signup';
+      url.search = '';
+      url.searchParams.set('next', '/dashboard');
+      return withCookies(NextResponse.redirect(url), response);
+    }
     return withCookies(redirectToLogin(request), response);
   }
 
   // Signed-in users don't need the login page
   if (user && path === '/login') {
     const url = request.nextUrl.clone();
-    url.pathname = safeNextPath(request.nextUrl.searchParams.get('next'));
+    url.pathname = safeNextPath(request.nextUrl.searchParams.get('next')) || '/dashboard';
     url.search = '';
     return withCookies(NextResponse.redirect(url), response);
   }
